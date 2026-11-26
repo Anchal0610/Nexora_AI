@@ -6,6 +6,7 @@ export interface PipelineSessionData {
   email: string;
   name: string;
   target_role: string;
+  job_description?: string;
   skills_extracted: string[];
   education: string[];
   experience: string[];
@@ -90,6 +91,7 @@ interface CareerContextType {
   loginWithGoogle: () => void;
   logout: () => Promise<void>;
   uploadResume: (file: File, jobDescription: string, email: string) => Promise<boolean>;
+  resetCareerSession: () => Promise<void>;
   clearSession: () => void;
 }
 
@@ -129,19 +131,24 @@ function exchangeGoogleCodeOnce(code: string, state: string | null): Promise<OAu
   return promise;
 }
 
-function clearLocalStorageSession() {
+function clearPipelineStorage() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem('nexora_user_email');
   localStorage.removeItem('nexora_session_data');
-  localStorage.removeItem('nexora_user');
-  localStorage.removeItem('userEmail');
   localStorage.removeItem('atsScore');
   localStorage.removeItem('overallReadiness');
   localStorage.removeItem('gapPercentage');
   localStorage.removeItem('currentSkills');
   localStorage.removeItem('missingSkills');
-  localStorage.removeItem('userName');
   localStorage.removeItem('targetRole');
+}
+
+function clearLocalStorageSession() {
+  if (typeof window === 'undefined') return;
+  clearPipelineStorage();
+  localStorage.removeItem('nexora_user_email');
+  localStorage.removeItem('nexora_user');
+  localStorage.removeItem('userEmail');
+  localStorage.removeItem('userName');
 }
 
 function syncSessionToStorage(userObj: User, session: PipelineSessionData | null) {
@@ -369,6 +376,22 @@ export function CareerProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const resetCareerSession = async () => {
+    const activeEmail = user?.email || email;
+    if (activeEmail) {
+      try {
+        await fetch(`/api/pipeline/session?email=${encodeURIComponent(activeEmail)}`, {
+          method: 'DELETE',
+        });
+      } catch (err) {
+        console.warn('Failed to delete pipeline session from database:', err);
+      }
+    }
+    setSessionData(null);
+    setError(null);
+    clearPipelineStorage();
+  };
+
   const clearSession = () => {
     setEmailState('');
     setSessionData(null);
@@ -391,6 +414,7 @@ export function CareerProvider({ children }: { children: React.ReactNode }) {
         loginWithGoogle,
         logout,
         uploadResume,
+        resetCareerSession,
         clearSession,
       }}
     >

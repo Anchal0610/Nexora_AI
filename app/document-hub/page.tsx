@@ -1,31 +1,45 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useCareer } from '@/components/CareerContext';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { 
-  FileText, 
-  Database, 
-  Upload, 
-  CheckCircle, 
-  Search, 
+import {
+  FileText,
+  Database,
+  Upload,
+  CheckCircle,
+  Search,
   PlusCircle,
   HelpCircle,
   FileCheck,
   RefreshCw,
-  AlertCircle
+  X,
 } from 'lucide-react';
 
 export default function DocumentHubPage() {
-  const { email: loggedInEmail, sessionData, loading, error, uploadResume, loadSession, clearSession } = useCareer();
+  const router = useRouter();
+  const {
+    email: loggedInEmail,
+    sessionData,
+    loading,
+    error,
+    uploadResume,
+    resetCareerSession,
+  } = useCareer();
+
   const [file, setFile] = useState<File | null>(null);
   const [jobDescription, setJobDescription] = useState('');
   const [email, setEmail] = useState('');
   const [activeTab, setActiveTab] = useState<'ats' | 'rag'>('ats');
+  const [isReuploading, setIsReuploading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [reuploadSuccess, setReuploadSuccess] = useState('');
+  const [formResetKey, setFormResetKey] = useState(0);
 
   // Additional RAG Doc Upload
   const [extraFile, setExtraFile] = useState<File | null>(null);
@@ -39,10 +53,6 @@ export default function DocumentHubPage() {
   const [answer, setAnswer] = useState('');
   const [citation, setCitation] = useState('');
   const [queryError, setQueryError] = useState('');
-
-  // Email login state
-  const [emailInput, setEmailInput] = useState('');
-  const [sessionChecked, setSessionChecked] = useState(false);
 
   useEffect(() => {
     if (sessionData?.email) {
@@ -66,21 +76,55 @@ export default function DocumentHubPage() {
 
   const handlePipelineSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
-    if (!jobDescription) return;
-    if (!email) return;
+    if (!file || !jobDescription || !email) return;
 
-    await uploadResume(file, jobDescription, email);
+    setReuploadSuccess('');
+    const wasReuploading = isReuploading;
+    const ok = await uploadResume(file, jobDescription, email);
+    if (ok) {
+      setFile(null);
+      setFormResetKey((k) => k + 1);
+      setIsReuploading(false);
+      setAnswer('');
+      setCitation('');
+      setQuery('');
+      setQueryError('');
+      if (wasReuploading) {
+        setReuploadSuccess('Updated resume analyzed and career session refreshed.');
+      }
+    }
   };
 
-  const handleEmailLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!emailInput) return;
-    const found = await loadSession(emailInput);
-    setSessionChecked(true);
-    if (!found) {
-      // Prompt user to upload resume since no session was found
-      setEmail(emailInput);
+  const handleOpenReupload = () => {
+    setReuploadSuccess('');
+    setFile(null);
+    setFormResetKey((k) => k + 1);
+    if (!jobDescription && sessionData?.job_description) {
+      setJobDescription(sessionData.job_description);
+    }
+    setIsReuploading((prev) => !prev);
+  };
+
+  const handleResetSession = async () => {
+    setResetting(true);
+    try {
+      await resetCareerSession();
+      setFile(null);
+      setJobDescription('');
+      setActiveTab('ats');
+      setIsReuploading(false);
+      setReuploadSuccess('');
+      setExtraFile(null);
+      setExtraSuccess('');
+      setExtraError('');
+      setQuery('');
+      setAnswer('');
+      setCitation('');
+      setQueryError('');
+      setFormResetKey((k) => k + 1);
+      router.refresh();
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -97,7 +141,7 @@ export default function DocumentHubPage() {
 
       const res = await fetch('/api/document/ingest', {
         method: 'POST',
-        body: formData
+        body: formData,
       });
 
       if (!res.ok) {
@@ -125,7 +169,7 @@ export default function DocumentHubPage() {
       const res = await fetch('/api/document/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        body: JSON.stringify({ query }),
       });
 
       if (!res.ok) {
@@ -143,12 +187,101 @@ export default function DocumentHubPage() {
     }
   };
 
-  // Helper to get score text color
   const getScoreColorClass = (score: number) => {
     if (score >= 80) return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/5';
     if (score >= 60) return 'text-amber-400 border-amber-500/30 bg-amber-500/5';
     return 'text-rose-400 border-rose-500/30 bg-rose-500/5';
   };
+
+  const renderResumeUploadCard = (isUpdateMode: boolean) => (
+    <Card className="bg-surface border-border p-6 shadow-xl">
+      <CardHeader className="p-0 pb-3 border-b border-border/30 mb-5 flex flex-row items-center justify-between gap-2">
+        <CardTitle className="text-sm font-bold uppercase tracking-wider text-white">
+          {isUpdateMode ? 'Re-upload Updated Resume & Target Job' : 'Ingest New Resume & Target Job'}
+        </CardTitle>
+        {isUpdateMode && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setIsReuploading(false);
+              setFile(null);
+            }}
+            className="text-xs text-muted hover:text-white h-7 px-2 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5 mr-1" /> Cancel
+          </Button>
+        )}
+      </CardHeader>
+      <form onSubmit={handlePipelineSubmit} className="space-y-5">
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold tracking-wider text-muted uppercase">
+            {isUpdateMode ? 'Upload Updated Resume File' : 'Upload Resume File'}
+          </label>
+          <div className="relative border border-dashed border-border rounded-lg p-6 bg-zinc-950/40 text-center hover:border-accent/40 transition-colors cursor-pointer">
+            <input
+              key={formResetKey}
+              type="file"
+              required
+              accept=".pdf,.docx,.pptx,.txt"
+              onChange={handleFileChange}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            />
+            <div className="text-muted text-[11px] py-1">
+              <Upload className="w-5 h-5 mx-auto mb-2 text-muted" />
+              {file ? (
+                <span className="text-accent font-semibold">Selected: {file.name}</span>
+              ) : (
+                <span>Drag & drop or click to upload PDF, DOCX, or TXT</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold tracking-wider text-muted uppercase">User Email</label>
+          <Input
+            type="email"
+            disabled
+            value={email}
+            className="bg-zinc-950 border-border text-muted-foreground text-xs h-9 cursor-not-allowed select-none opacity-80"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold tracking-wider text-muted uppercase">Target Job Description</label>
+          <Textarea
+            required
+            placeholder="Paste the job description of the target role here. The AI will extract requirements, calculate fit, identify gaps, and format a study roadmap..."
+            value={jobDescription}
+            onChange={(e) => setJobDescription(e.target.value)}
+            className="bg-zinc-950 border-border text-white text-xs min-h-[140px]"
+          />
+        </div>
+
+        {error && (
+          <div className="p-3 rounded bg-rose-500/5 border border-rose-500/20 text-rose-400 text-xs font-semibold">
+            Error: {error}
+          </div>
+        )}
+
+        <Button
+          type="submit"
+          disabled={loading || !file || !jobDescription || !email}
+          className="w-full bg-accent hover:bg-accent-glow text-white font-bold h-9 text-xs uppercase tracking-wider transition-colors rounded cursor-pointer"
+        >
+          {loading
+            ? isUpdateMode
+              ? 'Re-analyzing Updated Resume...'
+              : 'Running Unified Career Pipeline...'
+            : isUpdateMode
+              ? 'Re-upload & Re-analyze Resume'
+              : 'Generate Career Intelligence Session'}
+        </Button>
+      </form>
+    </Card>
+  );
 
   return (
     <div className="space-y-6">
@@ -158,89 +291,51 @@ export default function DocumentHubPage() {
           <h1 className="text-2xl font-bold uppercase tracking-tight text-white flex items-center gap-2">
             <Database className="text-accent w-6 h-6" /> Document Hub
           </h1>
-          <p className="text-xs text-muted">Upload once to analyze resume ATS match and build your custom semantic RAG search space</p>
+          <p className="text-xs text-muted">
+            Upload once to analyze resume ATS match and build your custom semantic RAG search space
+          </p>
         </div>
         {sessionData && (
-          <Button 
-            variant="outline" 
-            onClick={clearSession}
-            className="text-xs border-border hover:bg-surface-2 text-white h-8 shrink-0 cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5 mr-1" /> Reset Session
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              onClick={handleOpenReupload}
+              disabled={loading || resetting}
+              className="text-xs border-accent/40 bg-accent/10 hover:bg-accent/20 text-white h-8 cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5 mr-1.5 text-accent" />
+              {isReuploading ? 'Close Re-upload' : 'Re-upload Resume'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleResetSession}
+              disabled={loading || resetting}
+              className="text-xs border-border hover:bg-surface-2 text-white h-8 cursor-pointer"
+            >
+              <RefreshCw className={cn('w-3.5 h-3.5 mr-1.5', resetting && 'animate-spin')} />
+              {resetting ? 'Resetting...' : 'Reset Session'}
+            </Button>
+          </div>
         )}
       </div>
 
-      {/* 2. Login or Initial Upload View if no sessionData exists */}
+      {/* 2. Initial Upload View if no sessionData exists */}
       {!sessionData ? (
-        <div className="max-w-2xl mx-auto">
-          {/* Full Pipeline Ingestion Upload */}
-          <Card className="bg-surface border-border p-6 shadow-xl">
-            <CardHeader className="p-0 pb-3 border-b border-border/30 mb-5">
-              <CardTitle className="text-sm font-bold uppercase tracking-wider text-white">Ingest New Resume & Target Job</CardTitle>
-            </CardHeader>
-            <form onSubmit={handlePipelineSubmit} className="space-y-5">
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold tracking-wider text-muted uppercase">Upload Resume File</label>
-                <div className="relative border border-dashed border-border rounded-lg p-6 bg-zinc-950/40 text-center hover:border-accent/40 transition-colors cursor-pointer">
-                  <input
-                    type="file"
-                    required
-                    accept=".pdf,.docx,.pptx,.txt"
-                    onChange={handleFileChange}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                  <div className="text-muted text-[11px] py-1">
-                    <Upload className="w-5 h-5 mx-auto mb-2 text-muted" />
-                    {file ? (
-                      <span className="text-accent font-semibold">Selected: {file.name}</span>
-                    ) : (
-                      <span>Drag & drop or click to upload PDF, DOCX, or TXT</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold tracking-wider text-muted uppercase">User Email</label>
-                <Input
-                  type="email"
-                  disabled
-                  value={email}
-                  className="bg-zinc-950 border-border text-muted-foreground text-xs h-9 cursor-not-allowed select-none opacity-80"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold tracking-wider text-muted uppercase">Target Job Description</label>
-                <Textarea
-                  required
-                  placeholder="Paste the job description of the target role here. The AI will extract requirements, calculate fit, identify gaps, and format a study roadmap..."
-                  value={jobDescription}
-                  onChange={(e) => setJobDescription(e.target.value)}
-                  className="bg-zinc-950 border-border text-white text-xs min-h-[140px]"
-                />
-              </div>
-
-              {error && (
-                <div className="p-3 rounded bg-rose-500/5 border border-rose-500/20 text-rose-400 text-xs font-semibold">
-                  Error: {error}
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                disabled={loading || !file || !jobDescription || !email}
-                className="w-full bg-accent hover:bg-accent-glow text-white font-bold h-9 text-xs uppercase tracking-wider transition-colors rounded cursor-pointer"
-              >
-                {loading ? 'Running Unified Career Pipeline...' : 'Generate Career Intelligence Session'}
-              </Button>
-            </form>
-          </Card>
-        </div>
+        <div className="max-w-2xl mx-auto">{renderResumeUploadCard(false)}</div>
       ) : (
-        /* 3. Session Active - Show Tabs */
+        /* 3. Session Active - Show Optional Re-upload Drawer + Tabs */
         <div className="space-y-6">
+          {reuploadSuccess && (
+            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 shrink-0" />
+              <span>{reuploadSuccess}</span>
+            </div>
+          )}
+
+          {isReuploading && (
+            <div className="max-w-2xl mx-auto">{renderResumeUploadCard(true)}</div>
+          )}
+
           {/* Summary Banner */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card className="bg-surface border-border p-4 flex items-center gap-3">
@@ -259,7 +354,8 @@ export default function DocumentHubPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold font-mono tracking-tight text-white">
-                  {sessionData.skills_present.length} / {sessionData.skills_present.length + sessionData.skills_missing.length}
+                  {sessionData.skills_present.length} /{' '}
+                  {sessionData.skills_present.length + sessionData.skills_missing.length}
                 </p>
                 <p className="text-[10px] text-muted font-semibold uppercase tracking-wider">Skills Mapped</p>
               </div>
@@ -283,10 +379,10 @@ export default function DocumentHubPage() {
             <button
               onClick={() => setActiveTab('ats')}
               className={cn(
-                "pb-3 text-xs tracking-wider uppercase font-bold border-b-2 px-1 transition-all cursor-pointer",
-                activeTab === 'ats' 
-                  ? "text-accent border-accent font-extrabold" 
-                  : "text-muted border-transparent hover:text-white"
+                'pb-3 text-xs tracking-wider uppercase font-bold border-b-2 px-1 transition-all cursor-pointer',
+                activeTab === 'ats'
+                  ? 'text-accent border-accent font-extrabold'
+                  : 'text-muted border-transparent hover:text-white'
               )}
             >
               Resume ATS Analyzer
@@ -294,10 +390,10 @@ export default function DocumentHubPage() {
             <button
               onClick={() => setActiveTab('rag')}
               className={cn(
-                "pb-3 text-xs tracking-wider uppercase font-bold border-b-2 px-1 transition-all cursor-pointer",
-                activeTab === 'rag' 
-                  ? "text-accent border-accent font-extrabold" 
-                  : "text-muted border-transparent hover:text-white"
+                'pb-3 text-xs tracking-wider uppercase font-bold border-b-2 px-1 transition-all cursor-pointer',
+                activeTab === 'rag'
+                  ? 'text-accent border-accent font-extrabold'
+                  : 'text-muted border-transparent hover:text-white'
               )}
             >
               Semantic RAG Assistant
@@ -312,17 +408,24 @@ export default function DocumentHubPage() {
               <div className="lg:col-span-2 space-y-6">
                 <Card className="bg-surface border-border p-5 text-center">
                   <div className="text-[10px] font-bold text-muted uppercase tracking-widest mb-2">Resume Score</div>
-                  <div className={cn(
-                    "w-28 h-28 rounded-full border-4 mx-auto flex flex-col justify-center items-center font-mono text-3xl font-extrabold",
-                    getScoreColorClass(sessionData.ats_score)
-                  )}>
+                  <div
+                    className={cn(
+                      'w-28 h-28 rounded-full border-4 mx-auto flex flex-col justify-center items-center font-mono text-3xl font-extrabold',
+                      getScoreColorClass(sessionData.ats_score)
+                    )}
+                  >
                     {sessionData.ats_score}%
                   </div>
-                  
+
                   {sessionData.file_url && (
                     <div className="mt-4 p-2.5 rounded bg-zinc-950 border border-border text-[11px] text-zinc-300">
-                      Cloud Backup File:{" "}
-                      <a href={sessionData.file_url} target="_blank" rel="noreferrer" className="underline font-bold text-accent hover:text-accent-glow">
+                      Cloud Backup File:{' '}
+                      <a
+                        href={sessionData.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline font-bold text-accent hover:text-accent-glow"
+                      >
                         File Link URL
                       </a>
                     </div>
@@ -340,7 +443,9 @@ export default function DocumentHubPage() {
                     {sessionData.rag_ingested && (
                       <div className="flex justify-between">
                         <span>RAG Ingest Status:</span>
-                        <strong className="text-emerald-400 font-mono">ACTIVE ({sessionData.rag_ingested.chunksCount} chunks)</strong>
+                        <strong className="text-emerald-400 font-mono">
+                          ACTIVE ({sessionData.rag_ingested.chunksCount} chunks)
+                        </strong>
                       </div>
                     )}
                   </div>
@@ -352,19 +457,25 @@ export default function DocumentHubPage() {
                     <div>
                       <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Education</h4>
                       <ul className="list-disc list-inside text-zinc-300 space-y-1">
-                        {sessionData.education.map((edu, idx) => <li key={idx}>{edu}</li>)}
+                        {sessionData.education.map((edu, idx) => (
+                          <li key={idx}>{edu}</li>
+                        ))}
                       </ul>
                     </div>
                     <div>
                       <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Experience</h4>
                       <ul className="list-disc list-inside text-zinc-300 space-y-1">
-                        {sessionData.experience.map((exp, idx) => <li key={idx}>{exp}</li>)}
+                        {sessionData.experience.map((exp, idx) => (
+                          <li key={idx}>{exp}</li>
+                        ))}
                       </ul>
                     </div>
                     <div>
                       <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Projects</h4>
                       <ul className="list-disc list-inside text-zinc-300 space-y-1">
-                        {sessionData.projects.map((proj, idx) => <li key={idx}>{proj}</li>)}
+                        {sessionData.projects.map((proj, idx) => (
+                          <li key={idx}>{proj}</li>
+                        ))}
                       </ul>
                     </div>
                   </div>
@@ -374,9 +485,13 @@ export default function DocumentHubPage() {
               {/* Right ATS Details Card */}
               <Card className="bg-surface border-border lg:col-span-3 p-5 space-y-6">
                 <div>
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-white mb-2">Resume Fit & Keywords match</h3>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-white mb-2">
+                    Resume Fit & Keywords match
+                  </h3>
                   <div className="p-3 bg-zinc-950 border border-border rounded text-xs text-muted">
-                    Keyword match overlap: <strong className="text-white font-mono">{sessionData.overlap_percentage}%</strong> of target job description phrases are represented in resume text.
+                    Keyword match overlap:{' '}
+                    <strong className="text-white font-mono">{sessionData.overlap_percentage}%</strong> of target job
+                    description phrases are represented in resume text.
                   </div>
                 </div>
 
@@ -394,7 +509,9 @@ export default function DocumentHubPage() {
                   </div>
 
                   <div className="border-t border-border/30 pt-4">
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2">ATS Improvement Areas</h4>
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2">
+                      ATS Improvement Areas
+                    </h4>
                     <ul className="space-y-2 text-xs text-zinc-300">
                       {sessionData.weaknesses_improvements.map((weak, idx) => (
                         <li key={idx} className="flex items-start gap-2">
@@ -410,16 +527,19 @@ export default function DocumentHubPage() {
           ) : (
             /* Document RAG Tab */
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
-              
               {/* Ingest Extra Documents */}
               <div className="lg:col-span-2 space-y-6">
                 <Card className="bg-surface border-border p-5">
                   <CardHeader className="p-0 pb-3 border-b border-border/30 mb-4">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-white">Add Reference Documents</CardTitle>
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-white">
+                      Add Reference Documents
+                    </CardTitle>
                   </CardHeader>
                   <form onSubmit={handleExtraUpload} className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold tracking-wider text-muted uppercase">Upload reference (PDF, DOCX, TXT)</label>
+                      <label className="text-[10px] font-bold tracking-wider text-muted uppercase">
+                        Upload reference (PDF, DOCX, TXT)
+                      </label>
                       <div className="relative border border-dashed border-border rounded p-4 bg-zinc-950/40 text-center hover:border-accent/40 transition-colors cursor-pointer">
                         <input
                           type="file"
@@ -464,11 +584,21 @@ export default function DocumentHubPage() {
                 <Card className="bg-surface border-border p-5 text-xs text-muted">
                   <h4 className="font-bold text-white uppercase mb-2">Search Space Ingested Nodes</h4>
                   <ul className="space-y-1.5 list-disc list-inside">
-                    <li>Resume: <strong className="text-white font-mono">{sessionData.rag_ingested?.filename || 'Uploaded Resume'}</strong></li>
+                    <li>
+                      Resume:{' '}
+                      <strong className="text-white font-mono">
+                        {sessionData.rag_ingested?.filename || 'Uploaded Resume'}
+                      </strong>
+                    </li>
                     {sessionData.rag_ingested && (
-                      <li>Chunks count: <strong className="text-white font-mono">{sessionData.rag_ingested.chunksCount}</strong></li>
+                      <li>
+                        Chunks count:{' '}
+                        <strong className="text-white font-mono">{sessionData.rag_ingested.chunksCount}</strong>
+                      </li>
                     )}
-                    <li>Status: <strong className="text-emerald-400 font-mono">Semantic Queries Ready</strong></li>
+                    <li>
+                      Status: <strong className="text-emerald-400 font-mono">Semantic Queries Ready</strong>
+                    </li>
                   </ul>
                 </Card>
               </div>
@@ -516,7 +646,9 @@ export default function DocumentHubPage() {
 
                     {citation && (
                       <div>
-                        <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Retrieved Vector Chunk Citation Context</h5>
+                        <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-2">
+                          Retrieved Vector Chunk Citation Context
+                        </h5>
                         <pre className="p-4 bg-zinc-950 border border-border rounded text-zinc-500 text-[10px] leading-normal font-mono whitespace-pre-wrap max-h-[160px] overflow-y-auto scrollbar-thin">
                           {citation}
                         </pre>

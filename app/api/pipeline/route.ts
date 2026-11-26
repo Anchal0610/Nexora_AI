@@ -488,6 +488,7 @@ export async function POST(request: Request) {
       email,
       name: candidateName,
       target_role: recommendedTopRole,
+      job_description: jobDescription,
       skills_extracted: candidateSkills,
       education: candidateEducation,
       experience: candidateExperience,

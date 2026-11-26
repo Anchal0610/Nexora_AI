@@ -217,6 +217,17 @@ class DatabaseManager {
       throw err;
     }
   }
+
+  public async deletePipelineSession(email: string): Promise<void> {
+    try {
+      await prisma.pipelineSession.deleteMany({
+        where: { email },
+      });
+    } catch (err) {
+      console.error('Failed to delete pipeline session via Prisma:', err);
+      throw err;
+    }
+  }
 }
 
 export const dbManager = new DatabaseManager();
