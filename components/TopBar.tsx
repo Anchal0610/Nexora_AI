@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { usePathname } from 'next/navigation';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, LogOut } from 'lucide-react';
@@ -62,6 +62,9 @@ export default function TopBar() {
           </div>
 
           <Avatar className="h-9 w-9 border border-border bg-surface-2 flex items-center justify-center rounded-full select-none">
+            {user?.picture && (
+              <AvatarImage src={user.picture} alt={name} referrerPolicy="no-referrer" />
+            )}
             <AvatarFallback className="text-xs text-white font-bold uppercase">
               {name.slice(0, 2)}
             </AvatarFallback>

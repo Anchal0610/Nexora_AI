@@ -89,3 +89,5 @@ node_modules/
 out/
 next-env.d.ts
 .env*.local
+
+*.tsbuildinfo

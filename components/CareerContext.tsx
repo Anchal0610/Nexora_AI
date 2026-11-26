@@ -69,9 +69,10 @@ export interface PipelineSessionData {
 }
 
 export interface User {
-  id?: number;
+  id?: string;
   name: string;
   email: string;
+  picture?: string;
   target_role?: string;
   readiness_score: number;
   created_at?: string;
@@ -82,13 +83,99 @@ interface CareerContextType {
   user: User | null;
   sessionData: PipelineSessionData | null;
   loading: boolean;
+  authChecking: boolean;
   error: string | null;
   setEmail: (email: string) => void;
   loadSession: (email: string) => Promise<boolean>;
-  login: (email: string, name?: string) => Promise<boolean>;
-  logout: () => void;
+  loginWithGoogle: () => void;
+  logout: () => Promise<void>;
   uploadResume: (file: File, jobDescription: string, email: string) => Promise<boolean>;
   clearSession: () => void;
+}
+
+interface OAuthExchangeResult {
+  user?: User;
+  session?: PipelineSessionData | null;
+  error?: string;
+}
+
+// Deduplicate single-use Google authorization code exchanges across React Strict Mode mounts
+const oauthExchangeCache = new Map<string, Promise<OAuthExchangeResult>>();
+
+function exchangeGoogleCodeOnce(code: string, state: string | null): Promise<OAuthExchangeResult> {
+  const existing = oauthExchangeCache.get(code);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = (async (): Promise<OAuthExchangeResult> => {
+    try {
+      const res = await fetch('/api/auth/google/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, state }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { error: data.error || 'Google authentication failed.' };
+      }
+      return { user: data.user, session: data.session ?? null };
+    } catch (err) {
+      return { error: (err as Error).message || 'Google authentication failed.' };
+    }
+  })();
+
+  oauthExchangeCache.set(code, promise);
+  return promise;
+}
+
+function clearLocalStorageSession() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('nexora_user_email');
+  localStorage.removeItem('nexora_session_data');
+  localStorage.removeItem('nexora_user');
+  localStorage.removeItem('userEmail');
+  localStorage.removeItem('atsScore');
+  localStorage.removeItem('overallReadiness');
+  localStorage.removeItem('gapPercentage');
+  localStorage.removeItem('currentSkills');
+  localStorage.removeItem('missingSkills');
+  localStorage.removeItem('userName');
+  localStorage.removeItem('targetRole');
+}
+
+function syncSessionToStorage(userObj: User, session: PipelineSessionData | null) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('nexora_user', JSON.stringify(userObj));
+  localStorage.setItem('nexora_user_email', userObj.email);
+  localStorage.setItem('userEmail', userObj.email);
+  localStorage.setItem('userName', userObj.name);
+
+  if (session) {
+    const presentCount = session.skills_present?.length || 0;
+    const missingCount = session.skills_missing?.length || 0;
+    const totalSkills = presentCount + missingCount;
+    const gapPercentage = totalSkills > 0 ? 100 - (presentCount / totalSkills) * 100 : 0;
+
+    localStorage.setItem('nexora_session_data', JSON.stringify(session));
+    localStorage.setItem('atsScore', session.ats_score.toString());
+    localStorage.setItem('overallReadiness', session.readiness_score.toString());
+    localStorage.setItem('gapPercentage', gapPercentage.toString());
+    localStorage.setItem('currentSkills', (session.skills_present || []).join(', '));
+    localStorage.setItem(
+      'missingSkills',
+      JSON.stringify((session.skills_missing || []).map((s) => s.skill_name))
+    );
+    localStorage.setItem('targetRole', session.target_role || '');
+  } else {
+    localStorage.removeItem('nexora_session_data');
+    localStorage.removeItem('atsScore');
+    localStorage.removeItem('overallReadiness');
+    localStorage.removeItem('gapPercentage');
+    localStorage.removeItem('currentSkills');
+    localStorage.removeItem('missingSkills');
+    localStorage.removeItem('targetRole');
+  }
 }
 
 const CareerContext = createContext<CareerContextType | undefined>(undefined);
@@ -98,34 +185,8 @@ export function CareerProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [sessionData, setSessionData] = useState<PipelineSessionData | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Load from localStorage on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedEmail = localStorage.getItem('nexora_user_email');
-      const savedSession = localStorage.getItem('nexora_session_data');
-      const savedUser = localStorage.getItem('nexora_user');
-      
-      if (savedEmail) {
-        setEmailState(savedEmail);
-      }
-      if (savedUser) {
-        try {
-          setUser(JSON.parse(savedUser));
-        } catch (e) {
-          console.warn('Failed to parse cached user data:', e);
-        }
-      }
-      if (savedSession) {
-        try {
-          setSessionData(JSON.parse(savedSession));
-        } catch (e) {
-          console.warn('Failed to parse cached session data:', e);
-        }
-      }
-    }
-  }, []);
 
   const setEmail = (newEmail: string) => {
     setEmailState(newEmail);
@@ -134,78 +195,107 @@ export function CareerProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Login handler
-  const login = async (loginEmail: string, loginName?: string): Promise<boolean> => {
-    if (!loginEmail) return false;
-    setLoading(true);
+  const applyAuthenticatedState = (nextUser: User, nextSession: PipelineSessionData | null) => {
+    setUser(nextUser);
+    setEmailState(nextUser.email);
+    setSessionData(nextSession);
     setError(null);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, name: loginName }),
-      });
-      
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Failed to login');
-      }
-      
-      const data = await res.json();
-      
-      setUser(data.user);
-      setEmail(loginEmail);
-      
-      if (data.session) {
-        setSessionData(data.session);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('nexora_session_data', JSON.stringify(data.session));
-          // Backward compatibility keys
-          localStorage.setItem('userEmail', loginEmail);
-          localStorage.setItem('atsScore', data.session.ats_score.toString());
-          localStorage.setItem('overallReadiness', data.session.readiness_score.toString());
-          localStorage.setItem('gapPercentage', (100 - (data.session.skills_present.length / (data.session.skills_present.length + data.session.skills_missing.length) * 100)).toString());
-          localStorage.setItem('currentSkills', data.session.skills_present.join(', '));
-          localStorage.setItem('missingSkills', JSON.stringify(data.session.skills_missing.map((s: any) => s.skill_name)));
-          localStorage.setItem('userName', data.user.name);
-          localStorage.setItem('targetRole', data.session.target_role || '');
+    syncSessionToStorage(nextUser, nextSession);
+  };
+
+  // Handle Google OAuth redirect callback and restore verified Google session on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let cancelled = false;
+
+    const initAuth = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const oauthCode = params.get('code');
+      const oauthState = params.get('state');
+      const oauthError = params.get('error');
+      const authError = params.get('auth_error');
+
+      if (oauthError || authError) {
+        if (!cancelled) {
+          setError(
+            authError ||
+              (oauthError === 'access_denied'
+                ? 'Google sign-in was cancelled.'
+                : `Google sign-in failed: ${oauthError}`)
+          );
+          clearLocalStorageSession();
+          setAuthChecking(false);
+          window.history.replaceState({}, '', window.location.pathname);
         }
-      } else {
-        setSessionData(null);
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('nexora_session_data');
-          localStorage.setItem('userEmail', loginEmail);
-          localStorage.setItem('userName', data.user.name);
-          localStorage.removeItem('atsScore');
-          localStorage.removeItem('overallReadiness');
-          localStorage.removeItem('gapPercentage');
-          localStorage.removeItem('currentSkills');
-          localStorage.removeItem('missingSkills');
-          localStorage.removeItem('targetRole');
-        }
+        return;
       }
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('nexora_user', JSON.stringify(data.user));
-        localStorage.setItem('nexora_user_email', loginEmail);
+      if (oauthCode) {
+        const result = await exchangeGoogleCodeOnce(oauthCode, oauthState);
+        if (!cancelled) {
+          window.history.replaceState({}, '', window.location.pathname);
+          if (result.user) {
+            applyAuthenticatedState(result.user, result.session ?? null);
+          } else {
+            clearLocalStorageSession();
+            setError(result.error || 'Failed to authenticate with Google.');
+          }
+          setAuthChecking(false);
+        }
+        return;
       }
-      return true;
-    } catch (err) {
-      console.error(err);
-      setError((err as Error).message);
-      return false;
-    } finally {
-      setLoading(false);
+
+      try {
+        const res = await fetch('/api/auth/session', { cache: 'no-store' });
+        const data = await res.json();
+        if (!cancelled) {
+          if (res.ok && data.authenticated && data.user) {
+            applyAuthenticatedState(data.user, data.session ?? null);
+          } else {
+            setUser(null);
+            setEmailState('');
+            setSessionData(null);
+            clearLocalStorageSession();
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to verify Google session:', err);
+        if (!cancelled) {
+          setUser(null);
+          setEmailState('');
+          setSessionData(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthChecking(false);
+        }
+      }
+    };
+
+    initAuth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Redirect user to Google OAuth
+  const loginWithGoogle = () => {
+    setError(null);
+    setLoading(true);
+    if (typeof window !== 'undefined') {
+      window.location.href = '/api/auth/google';
     }
   };
 
   // Logout handler
-  const logout = () => {
-    setUser(null);
-    clearSession();
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('nexora_user');
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.warn('Failed to clear server session cookie:', err);
     }
+    clearSession();
   };
 
   // Check if session data exists on backend and load it
@@ -217,33 +307,17 @@ export function CareerProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`/api/pipeline/session?email=${encodeURIComponent(searchEmail.trim())}`);
       if (!res.ok) throw new Error('Failed to retrieve session from database.');
       const data = await res.json();
-      
+
       if (data.exists && data.session) {
-        setSessionData(data.session);
-        setEmail(searchEmail);
-        
-        const parsedName = data.session.name || searchEmail.split('@')[0];
+        const parsedName = data.session.name || user?.name || searchEmail.split('@')[0];
         const loadedUser: User = {
+          ...user,
           name: parsedName,
           email: searchEmail,
           target_role: data.session.target_role,
-          readiness_score: data.session.readiness_score || 0.0
+          readiness_score: data.session.readiness_score || 0.0,
         };
-        setUser(loadedUser);
-        
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('nexora_user', JSON.stringify(loadedUser));
-          localStorage.setItem('nexora_session_data', JSON.stringify(data.session));
-          // Backward compatibility for pre-existing keys
-          localStorage.setItem('userEmail', searchEmail);
-          localStorage.setItem('atsScore', data.session.ats_score.toString());
-          localStorage.setItem('overallReadiness', data.session.readiness_score.toString());
-          localStorage.setItem('gapPercentage', (100 - (data.session.skills_present.length / (data.session.skills_present.length + data.session.skills_missing.length) * 100)).toString());
-          localStorage.setItem('currentSkills', data.session.skills_present.join(', '));
-          localStorage.setItem('missingSkills', JSON.stringify(data.session.skills_missing.map((s: any) => s.skill_name)));
-          localStorage.setItem('userName', data.session.name);
-          localStorage.setItem('targetRole', data.session.target_role);
-        }
+        applyAuthenticatedState(loadedUser, data.session);
         return true;
       }
       return false;
@@ -277,30 +351,14 @@ export function CareerProvider({ children }: { children: React.ReactNode }) {
       }
 
       const data: PipelineSessionData = await res.json();
-      setSessionData(data);
-      setEmail(uploadEmail);
-      
       const loadedUser: User = {
-        name: data.name,
+        ...user,
+        name: data.name || user?.name || uploadEmail.split('@')[0],
         email: uploadEmail,
         target_role: data.target_role,
-        readiness_score: data.readiness_score || 0.0
+        readiness_score: data.readiness_score || 0.0,
       };
-      setUser(loadedUser);
-      
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('nexora_user', JSON.stringify(loadedUser));
-        localStorage.setItem('nexora_session_data', JSON.stringify(data));
-        // Backward compatibility keys
-        localStorage.setItem('userEmail', uploadEmail);
-        localStorage.setItem('atsScore', data.ats_score.toString());
-        localStorage.setItem('overallReadiness', data.readiness_score.toString());
-        localStorage.setItem('gapPercentage', (100 - (data.skills_present.length / (data.skills_present.length + data.skills_missing.length) * 100)).toString());
-        localStorage.setItem('currentSkills', data.skills_present.join(', '));
-        localStorage.setItem('missingSkills', JSON.stringify(data.skills_missing.map((s: any) => s.skill_name)));
-        localStorage.setItem('userName', data.name);
-        localStorage.setItem('targetRole', data.target_role);
-      }
+      applyAuthenticatedState(loadedUser, data);
       return true;
     } catch (err) {
       console.error(err);
@@ -316,19 +374,7 @@ export function CareerProvider({ children }: { children: React.ReactNode }) {
     setSessionData(null);
     setError(null);
     setUser(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('nexora_user_email');
-      localStorage.removeItem('nexora_session_data');
-      localStorage.removeItem('nexora_user');
-      localStorage.removeItem('userEmail');
-      localStorage.removeItem('atsScore');
-      localStorage.removeItem('overallReadiness');
-      localStorage.removeItem('gapPercentage');
-      localStorage.removeItem('currentSkills');
-      localStorage.removeItem('missingSkills');
-      localStorage.removeItem('userName');
-      localStorage.removeItem('targetRole');
-    }
+    clearLocalStorageSession();
   };
 
   return (
@@ -338,10 +384,11 @@ export function CareerProvider({ children }: { children: React.ReactNode }) {
         user,
         sessionData,
         loading,
+        authChecking,
         error,
         setEmail,
         loadSession,
-        login,
+        loginWithGoogle,
         logout,
         uploadResume,
         clearSession,
