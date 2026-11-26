@@ -66,9 +66,13 @@ export class MistralService {
   public async generateStructuredCompletion(
     prompt: string,
     systemInstruction: string,
-    responseModelName: string
+    responseModelName: string,
+    throwOnFailure = false
   ): Promise<any> {
     if (this.mockMode || !this.apiKey) {
+      if (throwOnFailure) {
+        throw new Error(`Mistral API unavailable for ${responseModelName}`);
+      }
       console.log(`Generating mock completion for model: ${responseModelName}`);
       return this.getMockModelData(responseModelName);
     }
@@ -93,14 +97,23 @@ export class MistralService {
       });
 
       if (!response.ok) {
-        throw new Error(`Mistral API status ${response.status}`);
+        const errBody = await response.text().catch(() => '');
+        throw new Error(`Mistral API status ${response.status}${errBody ? `: ${errBody.slice(0, 160)}` : ''}`);
       }
 
       const resData = await response.json();
       const content = resData.choices[0].message.content;
-      return JSON.parse(content);
+      const cleanedJson = String(content || '')
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/```$/i, '')
+        .trim();
+      return JSON.parse(cleanedJson);
     } catch (err) {
       console.error(`Mistral structured completion failed for ${responseModelName}:`, err);
+      if (throwOnFailure) {
+        throw err;
+      }
       return this.getMockModelData(responseModelName);
     }
   }

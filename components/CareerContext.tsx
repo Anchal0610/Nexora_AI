@@ -4,17 +4,30 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export interface PipelineSessionData {
   email: string;
+  candidate_email?: string;
   name: string;
+  phone?: string;
+  location?: string;
+  links?: {
+    linkedin?: string;
+    github?: string;
+    portfolio?: string;
+  };
+  summary?: string;
+  years_of_experience?: number;
   target_role: string;
   job_description?: string;
   skills_extracted: string[];
   education: string[];
   experience: string[];
   projects: string[];
+  certifications?: string[];
   ats_score: number;
   strengths: string[];
   weaknesses_improvements: string[];
   overlap_percentage: number;
+  matched_keywords?: string[];
+  missing_keywords?: string[];
   file_url: string | null;
   career_recommendations: {
     role_name: string;
