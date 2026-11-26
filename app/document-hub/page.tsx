@@ -414,12 +414,12 @@ export default function DocumentHubPage() {
           {activeTab === 'ats' ? (
             /* ATS Tab */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Left Column: Score + Candidate Profile + Skills */}
+              {/* Left Column: Resume Score + Candidate Details */}
               <div className="lg:col-span-5 space-y-6">
                 <Card className="bg-surface border-border p-5">
-                  <div className="text-center pb-4 border-b border-border/30">
+                  <div className="text-center">
                     <div className="text-[10px] font-bold text-muted uppercase tracking-widest mb-3">
-                      ATS Compatibility Score
+                      Resume Score
                     </div>
                     <div
                       className={cn(
@@ -429,71 +429,48 @@ export default function DocumentHubPage() {
                     >
                       {sessionData.ats_score}%
                     </div>
-                    <p className="text-[11px] font-semibold text-zinc-300 mt-2.5">
-                      {sessionData.ats_score >= 80
-                        ? 'Strong Alignment'
-                        : sessionData.ats_score >= 60
-                          ? 'Moderate Alignment'
-                          : 'Needs Keyword Optimization'}
-                    </p>
                   </div>
 
                   {sessionData.file_url && (
-                    <div className="mt-4 p-2.5 rounded bg-zinc-950 border border-border text-[11px] text-zinc-300 flex items-center justify-between">
-                      <span>Cloud Backup File</span>
+                    <div className="mt-4 p-2.5 rounded bg-zinc-950 border border-border text-[11px] text-zinc-300 text-center">
+                      Cloud Backup File:{' '}
                       <a
                         href={sessionData.file_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 underline font-bold text-accent hover:text-accent-glow"
+                        className="underline font-bold text-accent hover:text-accent-glow"
                       >
-                        View PDF <ExternalLink className="w-3 h-3" />
+                        File Link URL
                       </a>
                     </div>
                   )}
 
                   <div className="mt-4 p-3.5 bg-zinc-950 border border-border rounded-lg space-y-2 text-xs text-muted">
                     <div className="flex justify-between gap-2">
-                      <span>Candidate</span>
+                      <span>Candidate:</span>
                       <strong className="text-white text-right">{sessionData.name}</strong>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span className="inline-flex items-center gap-1">
-                        <Mail className="w-3 h-3" /> Email
-                      </span>
+                      <span>Resume Email:</span>
                       <strong className="text-white text-right truncate">
                         {sessionData.candidate_email || sessionData.email}
                       </strong>
                     </div>
                     {sessionData.phone && (
                       <div className="flex justify-between gap-2">
-                        <span className="inline-flex items-center gap-1">
-                          <Phone className="w-3 h-3" /> Phone
-                        </span>
+                        <span>Phone:</span>
                         <strong className="text-white font-mono text-right">{sessionData.phone}</strong>
                       </div>
                     )}
                     {sessionData.location && (
                       <div className="flex justify-between gap-2">
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin className="w-3 h-3" /> Location
-                        </span>
+                        <span>Location:</span>
                         <strong className="text-white text-right">{sessionData.location}</strong>
                       </div>
                     )}
-                    {typeof sessionData.years_of_experience === 'number' && (
-                      <div className="flex justify-between gap-2">
-                        <span>Estimated Exp.</span>
-                        <strong className="text-white font-mono">
-                          {sessionData.years_of_experience > 0
-                            ? `${sessionData.years_of_experience}+ yrs`
-                            : 'Entry / Fresher'}
-                        </strong>
-                      </div>
-                    )}
                     {sessionData.rag_ingested && (
-                      <div className="flex justify-between gap-2 pt-1 border-t border-border/30">
-                        <span>RAG Index</span>
+                      <div className="flex justify-between gap-2">
+                        <span>RAG Ingest Status:</span>
                         <strong className="text-emerald-400 font-mono">
                           ACTIVE ({sessionData.rag_ingested.chunksCount} chunks)
                         </strong>
@@ -537,55 +514,115 @@ export default function DocumentHubPage() {
                   )}
                 </Card>
 
-                {/* Extracted Skills */}
-                <Card className="bg-surface border-border p-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-accent" /> Extracted Skills
-                    </h3>
-                    <span className="text-[10px] font-mono text-muted">
-                      {sessionData.skills_extracted?.length || 0} detected
-                    </span>
-                  </div>
-                  {sessionData.skills_extracted && sessionData.skills_extracted.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {sessionData.skills_extracted.map((skill, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-200 text-[11px] font-medium"
-                        >
-                          {skill}
-                        </span>
-                      ))}
+                {/* Candidate Details */}
+                <Card className="bg-surface border-border p-5 space-y-4">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-white">Candidate Details</h3>
+
+                  {sessionData.summary && (
+                    <div className="p-3 rounded-lg bg-zinc-950 border border-border/80 space-y-1">
+                      <h4 className="text-[10px] font-bold text-accent uppercase tracking-wider">Summary</h4>
+                      <p className="text-xs text-zinc-300 leading-relaxed">{sessionData.summary}</p>
                     </div>
-                  ) : (
-                    <p className="text-xs text-muted">No structured skills detected in resume.</p>
                   )}
+
+                  <div className="space-y-4 text-xs">
+                    {/* Extracted Skills */}
+                    <div>
+                      <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">
+                        Extracted Skills
+                      </h4>
+                      {sessionData.skills_extracted && sessionData.skills_extracted.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {sessionData.skills_extracted.map((skill, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-200 text-[11px] font-medium"
+                            >
+                              {skill}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted italic">No structured skills detected in resume.</p>
+                      )}
+                    </div>
+
+                    {/* Education */}
+                    <div className="pt-2 border-t border-border/30">
+                      <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <GraduationCap className="w-3.5 h-3.5 text-cyan-400" /> Education
+                      </h4>
+                      {sessionData.education && sessionData.education.length > 0 ? (
+                        <ul className="list-disc list-inside text-zinc-300 space-y-1.5 leading-relaxed">
+                          {sessionData.education.map((edu, idx) => (
+                            <li key={idx}>{edu}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-muted italic">No education entries detected in resume.</p>
+                      )}
+                    </div>
+
+                    {/* Experience */}
+                    <div className="pt-2 border-t border-border/30">
+                      <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Briefcase className="w-3.5 h-3.5 text-blue-400" /> Experience
+                      </h4>
+                      {sessionData.experience && sessionData.experience.length > 0 ? (
+                        <ul className="list-disc list-inside text-zinc-300 space-y-1.5 leading-relaxed">
+                          {sessionData.experience.map((exp, idx) => (
+                            <li key={idx}>{exp}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-muted italic">No work experience entries detected in resume.</p>
+                      )}
+                    </div>
+
+                    {/* Projects */}
+                    <div className="pt-2 border-t border-border/30">
+                      <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Code2 className="w-3.5 h-3.5 text-emerald-400" /> Projects
+                      </h4>
+                      {sessionData.projects && sessionData.projects.length > 0 ? (
+                        <ul className="list-disc list-inside text-zinc-300 space-y-1.5 leading-relaxed">
+                          {sessionData.projects.map((proj, idx) => (
+                            <li key={idx}>{proj}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-muted italic">No project entries detected in resume.</p>
+                      )}
+                    </div>
+
+                    {/* Certifications */}
+                    {sessionData.certifications && sessionData.certifications.length > 0 && (
+                      <div className="pt-2 border-t border-border/30">
+                        <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                          <Award className="w-3.5 h-3.5 text-amber-400" /> Certifications &amp; Achievements
+                        </h4>
+                        <ul className="list-disc list-inside text-zinc-300 space-y-1.5 leading-relaxed">
+                          {sessionData.certifications.map((cert, idx) => (
+                            <li key={idx}>{cert}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 </Card>
               </div>
 
-              {/* Right Column: Keyword Match + Extracted Candidate Details */}
+              {/* Right Column: Resume Fit & Keywords Match */}
               <div className="lg:col-span-7 space-y-6">
                 <Card className="bg-surface border-border p-5 space-y-5">
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-white">
-                        Resume Fit &amp; Keywords Match
-                      </h3>
-                      <span className="text-xs font-mono font-bold text-accent">
-                        {sessionData.overlap_percentage}% Match
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden border border-border/50 mb-3">
-                      <div
-                        className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-500"
-                        style={{ width: `${Math.min(100, Math.max(0, sessionData.overlap_percentage))}%` }}
-                      />
-                    </div>
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-white mb-2">
+                      Resume Fit &amp; Keywords Match
+                    </h3>
                     <div className="p-3 bg-zinc-950 border border-border rounded text-xs text-muted">
                       Keyword match overlap:{' '}
                       <strong className="text-white font-mono">{sessionData.overlap_percentage}%</strong> of target job
-                      description keywords are represented in your resume.
+                      description phrases are represented in resume text.
                     </div>
                   </div>
 
@@ -631,13 +668,13 @@ export default function DocumentHubPage() {
                     </div>
                   ) : null}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-border/30">
+                  <div className="space-y-5 pt-2 border-t border-border/30">
                     <div>
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Profile Strengths
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2.5">
+                        Profile Strengths
                       </h4>
                       {sessionData.strengths && sessionData.strengths.length > 0 ? (
-                        <ul className="space-y-2 text-xs text-zinc-300">
+                        <ul className="space-y-2 text-xs text-zinc-300 leading-relaxed">
                           {sessionData.strengths.map((str, idx) => (
                             <li key={idx} className="flex items-start gap-2">
                               <span className="text-emerald-400 font-extrabold mt-0.5">+</span>
@@ -650,12 +687,12 @@ export default function DocumentHubPage() {
                       )}
                     </div>
 
-                    <div>
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> ATS Improvement Areas
+                    <div className="border-t border-border/30 pt-4">
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2.5">
+                        ATS Improvement Areas
                       </h4>
                       {sessionData.weaknesses_improvements && sessionData.weaknesses_improvements.length > 0 ? (
-                        <ul className="space-y-2 text-xs text-zinc-300">
+                        <ul className="space-y-2 text-xs text-zinc-300 leading-relaxed">
                           {sessionData.weaknesses_improvements.map((weak, idx) => (
                             <li key={idx} className="flex items-start gap-2">
                               <span className="text-rose-400 font-extrabold mt-0.5">-</span>
@@ -667,121 +704,6 @@ export default function DocumentHubPage() {
                         <p className="text-xs text-muted">No critical ATS gaps detected.</p>
                       )}
                     </div>
-                  </div>
-                </Card>
-
-                {/* Structured Candidate Details */}
-                <Card className="bg-surface border-border p-5 space-y-5">
-                  <div className="flex items-center justify-between border-b border-border/30 pb-3">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-white">
-                      Extracted Candidate Details
-                    </h3>
-                    <span className="text-[10px] font-mono text-muted uppercase">Parsed from Resume</span>
-                  </div>
-
-                  {sessionData.summary && (
-                    <div className="p-3.5 rounded-lg bg-zinc-950 border border-border/80 space-y-1">
-                      <h4 className="text-[10px] font-bold text-accent uppercase tracking-wider">
-                        Professional Summary
-                      </h4>
-                      <p className="text-xs text-zinc-300 leading-relaxed">{sessionData.summary}</p>
-                    </div>
-                  )}
-
-                  <div className="space-y-4 text-xs">
-                    {/* Education */}
-                    <div className="space-y-2">
-                      <h4 className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                        <GraduationCap className="w-4 h-4 text-cyan-400" /> Education
-                        <span className="text-[10px] font-mono text-muted ml-auto">
-                          {sessionData.education?.length || 0}
-                        </span>
-                      </h4>
-                      {sessionData.education && sessionData.education.length > 0 ? (
-                        <div className="space-y-2">
-                          {sessionData.education.map((edu, idx) => (
-                            <div
-                              key={idx}
-                              className="p-3 rounded-lg bg-zinc-950/80 border border-border/70 text-zinc-200 leading-relaxed"
-                            >
-                              {edu}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted italic">No education entries detected in resume.</p>
-                      )}
-                    </div>
-
-                    {/* Experience */}
-                    <div className="space-y-2 pt-2 border-t border-border/30">
-                      <h4 className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                        <Briefcase className="w-4 h-4 text-blue-400" /> Work Experience &amp; Internships
-                        <span className="text-[10px] font-mono text-muted ml-auto">
-                          {sessionData.experience?.length || 0}
-                        </span>
-                      </h4>
-                      {sessionData.experience && sessionData.experience.length > 0 ? (
-                        <div className="space-y-2">
-                          {sessionData.experience.map((exp, idx) => (
-                            <div
-                              key={idx}
-                              className="p-3 rounded-lg bg-zinc-950/80 border border-border/70 text-zinc-200 leading-relaxed"
-                            >
-                              {exp}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted italic">No work experience entries detected in resume.</p>
-                      )}
-                    </div>
-
-                    {/* Projects */}
-                    <div className="space-y-2 pt-2 border-t border-border/30">
-                      <h4 className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                        <Code2 className="w-4 h-4 text-emerald-400" /> Projects
-                        <span className="text-[10px] font-mono text-muted ml-auto">
-                          {sessionData.projects?.length || 0}
-                        </span>
-                      </h4>
-                      {sessionData.projects && sessionData.projects.length > 0 ? (
-                        <div className="space-y-2">
-                          {sessionData.projects.map((proj, idx) => (
-                            <div
-                              key={idx}
-                              className="p-3 rounded-lg bg-zinc-950/80 border border-border/70 text-zinc-200 leading-relaxed"
-                            >
-                              {proj}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted italic">No project entries detected in resume.</p>
-                      )}
-                    </div>
-
-                    {/* Certifications */}
-                    {sessionData.certifications && sessionData.certifications.length > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-border/30">
-                        <h4 className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                          <Award className="w-4 h-4 text-amber-400" /> Certifications &amp; Achievements
-                          <span className="text-[10px] font-mono text-muted ml-auto">
-                            {sessionData.certifications.length}
-                          </span>
-                        </h4>
-                        <div className="space-y-2">
-                          {sessionData.certifications.map((cert, idx) => (
-                            <div
-                              key={idx}
-                              className="p-3 rounded-lg bg-zinc-950/80 border border-border/70 text-zinc-200 leading-relaxed"
-                            >
-                              {cert}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </Card>
               </div>

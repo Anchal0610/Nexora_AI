@@ -8,6 +8,8 @@ export interface ParsedResumeDetails {
     github?: string;
     portfolio?: string;
   };
+  profile_labels: string[];
+  learning_qualifiers: string[];
   summary?: string;
   skills: string[];
   education: string[];
@@ -74,6 +76,9 @@ const KNOWN_SKILLS: { label: string; patterns: RegExp[] }[] = [
   { label: 'Terraform', patterns: [/\bterraform\b/i] },
   { label: 'Git', patterns: [/\bgit\b/i] },
   { label: 'GitHub', patterns: [/\bgithub\b/i] },
+  { label: 'VS Code', patterns: [/\bvs\s*code\b/i, /\bvisual studio code\b/i] },
+  { label: 'Postman', patterns: [/\bpostman\b/i] },
+  { label: 'Vercel', patterns: [/\bvercel\b/i] },
   { label: 'Linux', patterns: [/\blinux\b/i] },
   { label: 'Machine Learning', patterns: [/\bmachine learning\b/i] },
   { label: 'Deep Learning', patterns: [/\bdeep learning\b/i] },
@@ -227,8 +232,10 @@ function extractSkillsFromSectionLines(lines: string[]): string[] {
   for (const raw of lines) {
     const cleaned = cleanLine(raw);
     if (!cleaned) continue;
-    // Strip category prefix like "Languages:" or "Frameworks & Libraries:"
-    const withoutCategory = cleaned.replace(/^[A-Za-z0-9 &/+-]{2,30}:\s*/, '');
+    // Strip category prefix like "Languages:" and parenthetical qualifiers like "(Learning)"
+    const withoutCategory = cleaned
+      .replace(/^[A-Za-z0-9 &/+-]{2,30}:\s*/, '')
+      .replace(/\s*\((?:learning|beginner|basic|in progress|exploring)\)/gi, '');
     const parts = withoutCategory
       .split(/[,|•·;/]+/)
       .map((p) => p.trim())
@@ -325,15 +332,38 @@ export function parseResumeText(rawText: string, fallbackEmail: string): ParsedR
       .join(' ') || 'Candidate';
   }
 
-  // Extract location from header lines if available
+  // Extract location from header lines if available (supports City, State and City, State, Country)
   let location: string | undefined;
-  for (const rawLine of lines.slice(0, 8)) {
-    const locMatch = rawLine.match(/\b([A-Z][a-zA-Z\s]{2,20},\s*(?:[A-Z]{2}|[A-Z][a-zA-Z\s]{2,20}))\b/);
-    if (locMatch && !/@|http|github|linkedin/i.test(locMatch[1])) {
-      location = locMatch[1].trim();
+  for (const rawLine of lines.slice(0, 10)) {
+    const cleanedLocLine = cleanLine(rawLine);
+    const threePart = cleanedLocLine.match(
+      /\b([A-Z][a-zA-Z\s]{1,22},\s*[A-Z][a-zA-Z\s]{1,24},\s*[A-Z][a-zA-Z\s]{2,22})\b/
+    );
+    const twoPart = cleanedLocLine.match(
+      /\b([A-Z][a-zA-Z\s]{1,22},\s*(?:[A-Z]{2}|[A-Z][a-zA-Z\s]{2,22}))\b/
+    );
+    const candidateLoc = threePart?.[1] || twoPart?.[1];
+    if (
+      candidateLoc &&
+      !/@|http|github|linkedin|leetcode|cgpa|gpa|b\.?tech|m\.?tech|university|college/i.test(candidateLoc)
+    ) {
+      location = candidateLoc.trim();
       break;
     }
   }
+
+  // Detect plain-text profile labels (e.g., "LinkedIn", "GitHub", "LeetCode" without full https:// URLs)
+  const headerSlice = lines.slice(0, 12).join(' ');
+  const profile_labels: string[] = [];
+  if (/\blinkedin\b/i.test(headerSlice) && !linkedinMatch) profile_labels.push('LinkedIn');
+  if (/\bgithub\b/i.test(headerSlice) && !githubMatch) profile_labels.push('GitHub');
+  if (/\bleetcode\b/i.test(headerSlice) && !/leetcode\.com\/[^\s|,)]+/i.test(headerSlice)) profile_labels.push('LeetCode');
+  if (/\bcodechef\b/i.test(headerSlice) && !/codechef\.com\/[^\s|,)]+/i.test(headerSlice)) profile_labels.push('CodeChef');
+  if (/\bhackerrank\b/i.test(headerSlice) && !/hackerrank\.com\/[^\s|,)]+/i.test(headerSlice)) profile_labels.push('HackerRank');
+
+  // Detect qualifiers like "(Learning)", "(Beginner)", "(Basic)", "(In Progress)"
+  const qualifierMatches = rawText.match(/\((?:learning|beginner|basic|in progress|exploring)\)/gi) || [];
+  const learning_qualifiers = Array.from(new Set(qualifierMatches.map((q) => q.trim())));
 
   // Split into sections
   const sections: Record<SectionKey, string[]> = {
@@ -394,9 +424,10 @@ export function parseResumeText(rawText: string, fallbackEmail: string): ParsedR
 
   const dictionarySkills = extractSkillsFromText(rawText);
   const sectionSkills = extractSkillsFromSectionLines(sections.skills);
+  const normalizeSkillKey = (s: string) => s.toLowerCase().replace(/\.js$/i, '');
   const mergedSkills = new Map<string, string>();
   for (const s of [...dictionarySkills, ...sectionSkills]) {
-    const key = s.toLowerCase();
+    const key = normalizeSkillKey(s);
     if (!mergedSkills.has(key)) {
       mergedSkills.set(key, s);
     }
@@ -415,6 +446,8 @@ export function parseResumeText(rawText: string, fallbackEmail: string): ParsedR
       github: normalizeUrl(githubMatch?.[0]),
       portfolio,
     },
+    profile_labels,
+    learning_qualifiers,
     summary,
     skills,
     education,
@@ -430,7 +463,8 @@ export function analyzeResumeAgainstJD(
   jobDescription: string,
   parsed: ParsedResumeDetails
 ): DeterministicATSAnalysis {
-  const resumeSkillsLower = new Set(parsed.skills.map((s) => s.toLowerCase()));
+  const normalizeKwKey = (w: string) => w.toLowerCase().replace(/\.js$/i, '');
+  const resumeSkillsLower = new Set(parsed.skills.map(normalizeKwKey));
   const jdSkills = extractSkillsFromText(jobDescription);
 
   const tokenRegex = /\b[a-zA-Z][a-zA-Z0-9+#.-]{1,20}\b/g;
@@ -442,11 +476,12 @@ export function analyzeResumeAgainstJD(
   // Build weighted keyword list: prioritize technical skills mentioned in JD, then meaningful domain words
   const keywordCandidates = new Map<string, string>();
   for (const skill of jdSkills) {
-    keywordCandidates.set(skill.toLowerCase(), skill);
+    keywordCandidates.set(normalizeKwKey(skill), skill);
   }
   for (const token of jdWordTokens) {
-    if (!keywordCandidates.has(token) && keywordCandidates.size < 35) {
-      keywordCandidates.set(token, token);
+    const norm = normalizeKwKey(token);
+    if (!keywordCandidates.has(norm) && keywordCandidates.size < 35) {
+      keywordCandidates.set(norm, token);
     }
   }
 
@@ -455,10 +490,11 @@ export function analyzeResumeAgainstJD(
   const resLower = rawText.toLowerCase();
 
   for (const [key, display] of keywordCandidates.entries()) {
+    const displayLower = display.toLowerCase();
     const inResume =
       resumeSkillsLower.has(key) ||
-      resWordSet.has(key) ||
-      resLower.includes(key);
+      resWordSet.has(displayLower) ||
+      resLower.includes(displayLower);
     if (inResume) {
       matchedKeywords.push(display);
     } else {
@@ -469,7 +505,7 @@ export function analyzeResumeAgainstJD(
   const totalKeywords = matchedKeywords.length + missingKeywords.length;
   const overlapPercentage =
     totalKeywords > 0
-      ? Math.round((matchedKeywords.length / totalKeywords) * 1000) / 10
+      ? Math.round((matchedKeywords.length / totalKeywords) * 10000) / 100
       : parsed.skills.length > 0
         ? 50
         : 0;
@@ -499,42 +535,73 @@ export function analyzeResumeAgainstJD(
 
   const strengths: string[] = [];
   if (parsed.skills.length > 0) {
-    strengths.push(`Identified ${parsed.skills.length} technical skills including ${parsed.skills.slice(0, 5).join(', ')}.`);
-  }
-  if (matchedKeywords.length > 0) {
-    strengths.push(`Strong job alignment on key terms: ${matchedKeywords.slice(0, 6).join(', ')}.`);
-  }
-  if (parsed.experience.length > 0) {
-    strengths.push(`Includes structured experience (${parsed.experience.length} entries extracted).`);
+    strengths.push(`Solid technical stack covering ${parsed.skills.slice(0, 8).join(', ')}.`);
   }
   if (parsed.projects.length > 0) {
-    strengths.push(`Demonstrates hands-on implementation across ${parsed.projects.length} project entries.`);
+    strengths.push(
+      `Demonstrated hands-on implementation through ${parsed.projects.length} project(s), including ${parsed.projects[0]}.`
+    );
   }
   if (parsed.education.length > 0) {
-    strengths.push(`Academic credentials clearly extracted (${parsed.education[0]}).`);
+    strengths.push(`Strong academic foundation (${parsed.education[0]}).`);
   }
-  if (hasMetrics) {
+  const contactProfiles = [
+    ...(parsed.links.linkedin ? ['LinkedIn'] : []),
+    ...(parsed.links.github ? ['GitHub'] : []),
+    ...(parsed.links.portfolio ? ['Portfolio'] : []),
+    ...parsed.profile_labels,
+  ];
+  const uniqueProfiles = Array.from(new Set(contactProfiles));
+  if (parsed.email && (uniqueProfiles.length > 0 || parsed.phone)) {
+    const profilePart =
+      uniqueProfiles.length > 0
+        ? ` and ${uniqueProfiles.join(', ')} profiles`
+        : parsed.phone
+          ? ` and ${parsed.phone}`
+          : '';
+    strengths.push(`Complete ATS-readable contact header (${parsed.email}${profilePart}).`);
+  }
+  if (matchedKeywords.length > 0 && strengths.length < 5) {
+    strengths.push(`Strong job alignment on key terms: ${matchedKeywords.slice(0, 6).join(', ')}.`);
+  }
+  if (parsed.experience.length > 0 && strengths.length < 5) {
+    strengths.push(`Includes structured experience (${parsed.experience.length} entries extracted).`);
+  }
+  if (hasMetrics && strengths.length < 5) {
     strengths.push('Uses quantifiable impact metrics to substantiate engineering outcomes.');
   }
 
   const improvements: string[] = [];
+  if (parsed.experience.length === 0) {
+    improvements.push(
+      'No dedicated Work Experience / Internship section detected — add internships, freelance work, or open-source contributions with role dates.'
+    );
+  }
+  if (parsed.profile_labels.length > 0) {
+    improvements.push(
+      `Replace plain text profile labels (${parsed.profile_labels.join(', ')}) with full clickable HTTPS URLs so ATS parsers and recruiters can verify links directly.`
+    );
+  }
+  if (parsed.learning_qualifiers.length > 0) {
+    improvements.push(
+      `Remove qualifiers like "${parsed.learning_qualifiers[0]}" next to core stack items and instead demonstrate hands-on usage inside a project bullet.`
+    );
+  }
   if (missingKeywords.length > 0) {
-    improvements.push(`Incorporate missing target job keywords where applicable: ${missingKeywords.slice(0, 6).join(', ')}.`);
+    improvements.push(
+      `Incorporate missing target job keywords where applicable: ${missingKeywords.slice(0, 6).join(', ')}.`
+    );
   }
   if (!hasMetrics) {
-    improvements.push('Add measurable impact metrics (e.g., latency reduction %, user scale, test coverage) to bullet points.');
-  }
-  if (parsed.experience.length === 0) {
-    improvements.push('Add a dedicated Work Experience or Internships section with role titles, dates, and deliverables.');
+    improvements.push(
+      'Add measurable impact metrics (e.g., latency reduction %, user scale, test coverage) to bullet points.'
+    );
   }
   if (parsed.projects.length === 0) {
     improvements.push('Include a Projects section highlighting architecture, tech stack, and links.');
   }
-  if (!parsed.summary) {
+  if (!parsed.summary && improvements.length < 5) {
     improvements.push('Add a concise 2–3 line Professional Summary tailored to the target role.');
-  }
-  if (!parsed.links.github && !parsed.links.linkedin) {
-    improvements.push('Include clickable GitHub and LinkedIn profile URLs in your resume header.');
   }
 
   return {
